@@ -21,6 +21,39 @@ function favicon () {
   return utils.extractFilename(config.get('application.favicon'))
 }
 
+function isValidSSTIExpression (code: string): boolean {
+  if (typeof code !== 'string') return false
+
+  // 1. Block any character that is not allowed.
+  // Allowed: alphanumeric, spaces, +, -, *, /, %, (, ), ', "
+  const allowedCharRegex = /^[a-zA-Z0-9\s+\-*/%()'"]+$/
+  if (!allowedCharRegex.test(code)) {
+    return false
+  }
+
+  // 2. Block any function call (any word followed by parenthesis).
+  const functionCallRegex = /[a-zA-Z_][a-zA-Z0-9_]*\s*\(/
+  if (functionCallRegex.test(code)) {
+    return false
+  }
+
+  // 3. Block dangerous keywords (case-insensitive) anywhere in the string.
+  const dangerousKeywords = [
+    'require', 'process', 'global', 'module', 'constructor', 'prototype',
+    '__proto__', 'function', 'eval', 'import', 'exec', 'spawn', 'child_process',
+    'fs', 'os', 'path', 'system', 'mainmodule', 'env', 'window', 'document',
+    'this', 'atob', 'btoa', 'char', 'concat', 'tostring', 'valueof'
+  ]
+  const lowerCode = code.toLowerCase()
+  for (const keyword of dangerousKeywords) {
+    if (lowerCode.includes(keyword)) {
+      return false
+    }
+  }
+
+  return true
+}
+
 export function getUserProfile () {
   return async (req: Request, res: Response, next: NextFunction) => {
     let template: string
@@ -58,12 +91,15 @@ export function getUserProfile () {
         if (!code) {
           throw new Error('Username is null')
         }
+        if (!isValidSSTIExpression(code)) {
+          throw new Error('Invalid SSTI expression')
+        }
         username = eval(code) // eslint-disable-line no-eval
       } catch (err) {
-        username = '\\' + username
+        username = '\\\\' + username
       }
     } else {
-      username = '\\' + username
+      username = '\\\\' + username
     }
 
     const themeKey = config.get<string>('application.theme') as keyof typeof themes
